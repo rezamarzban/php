@@ -28,7 +28,17 @@
                         $content = $zip->getFromName($file);
                         if ($content !== false) {
                             echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
-                            echo "<pre>" . htmlspecialchars($content) . "</pre>";
+                            // Include GitHub Markdown CSS and marked.js only when displaying content
+                            echo '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css/github-markdown.css">';
+                            // Output raw Markdown in a hidden div
+                            echo '<div id="raw-markdown" style="display:none;">' . htmlspecialchars($content) . '</div>';
+                            // Div for rendered Markdown with GitHub styling
+                            echo '<div class="markdown-body" id="rendered-markdown"></div>';
+                            // Include marked.js and render the Markdown
+                            echo '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>';
+                            echo '<script>';
+                            echo 'document.getElementById("rendered-markdown").innerHTML = marked.parse(document.getElementById("raw-markdown").innerText);';
+                            echo '</script>';
                             echo '<a href="?url=' . urlencode($url) . '">Back to list</a>';
                         } else {
                             echo "<p>File not found in ZIP.</p>";
