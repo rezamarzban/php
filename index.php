@@ -25,11 +25,12 @@ function isValidUrl($url) {
  * @return string Resolved path
  */
 function resolvePath($base, $path) {
+    // Normalize separators
     $base = str_replace('\\', '/', $base);
     $path = str_replace('\\', '/', $path);
     
     if (strpos($path, '/') === 0) {
-        return ltrim($path, '/');
+        return ltrim($path, '/'); // Absolute path
     }
     
     $baseParts = explode('/', dirname($base));
@@ -46,6 +47,7 @@ function resolvePath($base, $path) {
     }
     
     $resolved = implode('/', $result);
+    // Prevent path traversal outside ZIP
     return strpos($resolved, '..') === false ? $resolved : '';
 }
 
@@ -71,58 +73,6 @@ function downloadZip($url, $destination) {
     fclose($fp);
     
     return $success && $httpCode === 200;
-}
-
-/**
- * Converts HTML <sub> and <sup> to LaTeX syntax
- * @param string $content Markdown content
- * @return string Content with HTML math converted to LaTeX
- */
-function convertHtmlMathToLatex($content) {
-    // Patterns to match <sub> and <sup> tags
-    $patterns = [
-        // Match <sub>...</sub> (e.g., I<sub>0</sub> -> $I_0$)
-        '/(\w+)<sub>([\w\d]+(?:\{[\w\d\s]+\})?)<\/sub>/' => '$1_$2',
-        // Match <sup>...</sup> (e.g., e<sup>jωt</sup> -> $e^{j\omega t}$)
-        '/(\w+)<sup>([\w\d\s\(\)-]+(?:\{[\w\d\s]+\})?)<\/sup>/' => '$1^{$2}',
-        // Match nested sub/sup (e.g., r<sub>pq</sub> -> $r_{pq}$)
-        '/(\w+)<sub>([\w\d]+(?:\{[\w\d\s]+\})?)<\/sub>/' => '$1_{$2}',
-        // Match complex expressions (e.g., e<sup>-jkr<sub>pq</sub></sup> -> $e^{-jkr_{pq}}$)
-        '/(\w+)<sup>([\w\d\s\(\)-]*<sub>([\w\d]+(?:\{[\w\d\s]+\})?)<\/sub>[\w\d\s\(\)-]*)<\/sup>/' => '$1^{$2}',
-    ];
-    
-    foreach ($patterns as $pattern => $replacement) {
-        $content = preg_replace($pattern, '$$' . $replacement . '$$', $content);
-    }
-    
-    return $content;
-}
-
-/**
- * Protects LaTeX content and sanitizes non-LaTeX parts
- * @param string $content Markdown content
- * @return string Processed content
- */
-function protectLatex($content) {
-    // First, convert HTML math to LaTeX
-    $content = convertHtmlMathToLatex($content);
-    
-    // Match LaTeX expressions (inline $...$, \(...\), or display \[...\], $$...$$)
-    $pattern = '/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$|\\\[\s\S]*?\\\]|\\\(.*?\\\))/';
-    $parts = preg_split($pattern, $content, -1, PREG_SPLIT_DELIM_CAPTURE);
-    
-    $result = '';
-    foreach ($parts as $part) {
-        if (preg_match($pattern, $part)) {
-            // LaTeX part: keep raw
-            $result .= $part;
-        } else {
-            // Non-LaTeX part: sanitize
-            $result .= htmlspecialchars($part, ENT_QUOTES, 'UTF-8');
-        }
-    }
-    
-    return $result;
 }
 ?>
 
@@ -172,6 +122,7 @@ function protectLatex($content) {
             exit;
         }
 
+        // Use cached ZIP if available and fresh
         $cacheKey = md5($url);
         $tempfile = CACHE_DIR . $cacheKey;
         $useCache = file_exists($tempfile) && (time() - filemtime($tempfile)) < CACHE_TTL;
@@ -195,41 +146,47 @@ function protectLatex($content) {
                 echo '<p class="error">File not found in ZIP.</p>';
                 echo '<a href="?url=' . urlencode($url) . '" class="back-link">Back to list</a>';
             } else {
-                // Process images
+                // Process images in Markdown
                 $content = preg_replace_callback(
                     '/!\[(.*?)\]\((.*?)\)/',
                     function($matches) use ($zip, $file) {
                         $altText = $matches[1];
                         $imgPath = $matches[2];
                         
+                        // Skip external URLs or data URIs
                         if (preg_match('/^(data:|https?:)/i', $imgPath)) {
                             return $matches[0];
                         }
                         
+                        // Resolve path and validate
                         $absPath = resolvePath($file, $imgPath);
-                        if (empty($absPath)) return $matches[0];
+                        if (empty($absPath)) return $matches[0]; // Invalid path
                         
+                        // Get image data
                         $imageData = $zip->getFromName($absPath);
                         if ($imageData === false) return $matches[0];
                         
+                        // Check image size (limit to 1MB)
                         if (strlen($imageData) > 1024 * 1024) {
-                            return "![$altText](data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=)";
+                            return "![$altText](data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=)"; // Placeholder
                         }
                         
+                        // Detect MIME type
                         $finfo = new finfo(FILEINFO_MIME_TYPE);
                         $mime = $finfo->buffer($imageData);
                         if (!in_array($mime, ['image/png', 'image/jpeg', 'image/gif', 'image/webp'])) {
-                            return $matches[0];
+                            return $matches[0]; // Not a supported image
                         }
                         
+                        // Create data URI
                         $base64 = base64_encode($imageData);
                         return "![$altText](data:$mime;base64,$base64)";
                     },
                     $content
                 );
 
-                // Protect LaTeX and convert HTML math
-                $content = protectLatex($content);
+                // Sanitize Markdown to prevent XSS
+                $content = htmlspecialchars($content, ENT_QUOTES, 'UTF-8');
                 
                 echo '<a href="?url=' . urlencode($url) . '" class="back-link">Back to list</a>';
                 echo '<h2>Content of ' . htmlspecialchars($file) . '</h2>';
@@ -238,38 +195,29 @@ function protectLatex($content) {
                 <script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/marked.min.js"></script>
                 <script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/tex-mml-chtml.js"></script>
                 <script>
+                    // Configure MathJax
                     MathJax = {
                         tex: {
                             inlineMath: [['$', '$'], ['\\(', '\\)']],
-                            displayMath: [['$$', '$$'], ['\\[', '\\]']],
-                            packages: ['base', 'ams'],
-                            processEscapes: true
-                        },
-                        options: {
-                            renderActions: {
-                                addMenu: [0, '', '']
-                            }
+                            displayMath: [['$$', '$$'], ['\\[', '\\]']]
                         }
                     };
                     
+                    // Render Markdown
                     const rawMarkdown = <?php echo json_encode($content); ?>;
                     document.getElementById('loading').style.display = 'block';
-                    try {
-                        document.getElementById('rendered-markdown').innerHTML = marked.parse(rawMarkdown);
-                        MathJax.typesetPromise()
-                            .then(() => document.getElementById('loading').style.display = 'none')
-                            .catch(err => {
-                                console.error('MathJax error:', err);
-                                document.getElementById('loading').innerHTML = 'Error rendering LaTeX. Some equations may not display correctly.';
-                            });
-                    } catch (e) {
-                        console.error('Marked.js error:', e);
-                        document.getElementById('loading').innerHTML = 'Error rendering Markdown.';
-                    }
+                    document.getElementById('rendered-markdown').innerHTML = marked.parse(rawMarkdown);
+                    MathJax.typesetPromise()
+                        .then(() => document.getElementById('loading').style.display = 'none')
+                        .catch(err => {
+                            console.error('MathJax error:', err);
+                            document.getElementById('loading').innerHTML = 'Error rendering LaTeX';
+                        });
                 </script>
                 <?php
             }
         } else {
+            // List .md files
             $md_files = [];
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $filename = $zip->getNameIndex($i);
@@ -291,7 +239,7 @@ function protectLatex($content) {
         
         $zip->close();
         if (!$useCache && file_exists($tempfile)) {
-            unlink($tempfile);
+            unlink($tempfile); // Only delete if not cached
         }
     }
     ?>
