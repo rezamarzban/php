@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>List and View .md Files with LaTeX</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css/github-markdown.min.css">
+    <link rel="stylesheet" href="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/github-markdown.min.css">
     <style>
         .markdown-body {
             box-sizing: border-box;
@@ -48,9 +48,9 @@
                             // Div for rendered Markdown with GitHub styling
                             echo '<div class="markdown-body" id="rendered-markdown"></div>';
                             // Include marked.js for Markdown parsing
-                            echo '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>';
+                            echo '<script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/marked.min.js"></script>';
                             // Include MathJax for LaTeX rendering
-                            echo '<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>';
+                            echo '<script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/tex-mml-chtml.js"></script>';
                             // Render Markdown and ensure MathJax processes LaTeX
                             echo '<script>
                                 document.getElementById("rendered-markdown").innerHTML = marked.parse(document.getElementById("raw-markdown").innerText);
