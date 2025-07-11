@@ -195,11 +195,15 @@ function downloadZip($url, $destination) {
                 <script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/marked.min.js"></script>
                 <script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/tex-mml-chtml.js"></script>
                 <script>
-                    // Configure MathJax
-                    MathJax = {
+                    // Configure MathJax to recognize LaTeX delimiters
+                    window.MathJax = {
                         tex: {
                             inlineMath: [['$', '$'], ['\\(', '\\)']],
                             displayMath: [['$$', '$$'], ['\\[', '\\]']]
+                        },
+                        options: {
+                            skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+                            ignoreHtmlClass: 'tex2jax_ignore'
                         }
                     };
                     
