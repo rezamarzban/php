@@ -16,7 +16,6 @@
         @media (max-width: 767px) {
             .markdown-body { padding: 15px; }
         }
-        .error { color: red; }
     </style>
 </head>
 <body>
@@ -29,10 +28,6 @@
     <div id="loading" style="display:none;">Loading...</div>
 
     <?php
-    // Enable error logging to a file for debugging
-    ini_set('log_errors', 1);
-    ini_set('error_log', sys_get_temp_dir() . '/php_errors.log');
-
     function list_md_files($zip, $url) {
         $md_files = [];
         for ($i = 0; $i < $zip->numFiles; $i++) {
@@ -52,83 +47,52 @@
         }
     }
 
-    function get_image_data_uri($zip, $image_path) {
-        $valid_extensions = ['png', 'jpg', 'jpeg', 'gif'];
-        $ext = strtolower(pathinfo($image_path, PATHINFO_EXTENSION));
-        if (!in_array($ext, $valid_extensions) || strpos($image_path, '..') !== false) {
-            error_log("Invalid image extension or path traversal attempt: $image_path");
-            return null;
-        }
-
-        $stat = $zip->statName($image_path);
-        if ($stat === false) {
-            error_log("Image not found in ZIP: $image_path");
-            return null;
-        }
-
-        // Limit image size to 1MB to avoid browser issues
-        if ($stat['size'] > 1048576) {
-            error_log("Image too large: $image_path ({$stat['size']} bytes)");
-            return null;
-        }
-
-        $image_data = $zip->getFromName($image_path);
-        if ($image_data === false) {
-            error_log("Failed to read image data: $image_path");
-            return null;
-        }
-
-        // Validate image data (basic check)
-        if (strlen($image_data) < 10) {
-            error_log("Invalid image data (too small): $image_path");
-            return null;
-        }
-
-        $mime_type = match ($ext) {
-            'png' => 'image/png',
-            'jpg', 'jpeg' => 'image/jpeg',
-            'gif' => 'image/gif',
-            default => null
-        };
-
-        if (!$mime_type) {
-            error_log("Unsupported MIME type for: $image_path");
-            return null;
-        }
-
-        $base64 = base64_encode($image_data);
-        return "data:$mime_type;base64,$base64";
-    }
-
     function display_md_file($zip, $file, $url) {
         if (!preg_match('/^[a-zA-Z0-9_\-\.\/]+\.md$/', $file)) {
-            echo "<p class='error'>Invalid file name.</p>";
-            error_log("Invalid Markdown file name: $file");
-            return;
-        }
-        $content = $zip->getFromName($file);
-        if ($content === false) {
-            echo "<p class='error'>File not found in ZIP.</p>";
-            error_log("Markdown file not found in ZIP: $file");
+            echo "<p>Invalid file name.</p>";
             return;
         }
 
-        // Rewrite image paths in Markdown to data URIs
-        $content = preg_replace_callback(
-            '/!\[([^\]]*)\]\(([^)]+)\)/',
-            function ($matches) use ($zip) {
-                $alt_text = $matches[1];
-                $image_path = $matches[2];
-                // Only rewrite relative paths (not URLs)
-                if (!preg_match('/^https?:\/\//', $image_path)) {
-                    $data_uri = get_image_data_uri($zip, $image_path);
-                    // Use placeholder if image is missing or invalid
-                    return $data_uri ? "![$alt_text]($data_uri)" : "![$alt_text](/images/missing.png)";
+        // Create a unique temporary directory for images
+        $temp_dir = sys_get_temp_dir() . '/md_images_' . uniqid();
+        if (!mkdir($temp_dir, 0755, true)) {
+            echo "<p>Failed to create temporary directory for images.</p>";
+            return;
+        }
+
+        // Extract images from ZIP to temporary directory
+        $allowed_extensions = ['png', 'jpg', 'jpeg', 'gif'];
+        $image_map = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $filename = $zip->getNameIndex($i);
+            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+            if (in_array($ext, $allowed_extensions)) {
+                $image_content = $zip->getFromName($filename);
+                if ($image_content !== false) {
+                    $temp_image_path = $temp_dir . '/' . basename($filename);
+                    file_put_contents($temp_image_path, $image_content);
+                    // Map the original image path to the temporary file's URL
+                    $image_map[$filename] = $temp_image_path;
                 }
-                return $matches[0]; // Leave absolute URLs unchanged
-            },
-            $content
-        );
+            }
+        }
+
+        // Get Markdown content
+        $content = $zip->getFromName($file);
+        if ($content === false) {
+            echo "<p>File not found in ZIP.</p>";
+            // Clean up temporary directory
+            array_map('unlink', glob("$temp_dir/*"));
+            rmdir($temp_dir);
+            return;
+        }
+
+        // Rewrite image paths in Markdown
+        foreach ($image_map as $original_path => $temp_path) {
+            // Convert temporary path to a URL-accessible path
+            $web_path = '/tmp/md_images_' . basename($temp_dir) . '/' . basename($temp_path);
+            $content = str_replace($original_path, $web_path, $content);
+        }
 
         echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
         echo '<div id="raw-markdown" style="display:none;">' . htmlspecialchars($content) . '</div>';
@@ -150,21 +114,18 @@
         </script>';
         echo '<a href="?url=' . urlencode($url) . '">Back to list</a>';
 
-        // Optional: Debug output (uncomment to display)
-        /*
-        echo "<pre>Debug: Rewritten Markdown Content:\n";
-        echo htmlspecialchars($content);
-        echo "</pre>";
-        */
+        // Clean up temporary directory
+        array_map('unlink', glob("$temp_dir/*"));
+        rmdir($temp_dir);
     }
 
     if (isset($_GET['url']) && !empty($_GET['url'])) {
         $url = $_GET['url'];
         if (!filter_var($url, FILTER_VALIDATE_URL) || !preg_match('/^https?:\/\//', $url)) {
-            echo "<p class='error'>Invalid or unsupported URL scheme.</p>";
-            error_log("Invalid URL: $url");
+            echo "<p>Invalid or unsupported URL scheme.</p>";
             exit;
         }
+
         $tempfile = tempnam(sys_get_temp_dir(), 'zip');
         if (copy($url, $tempfile)) {
             $zip = new ZipArchive;
@@ -177,14 +138,11 @@
                 $zip->close();
                 unlink($tempfile);
             } else {
-                echo "<p class='error'>Invalid or corrupted ZIP file.</p>";
-                error_log("Failed to open ZIP: $tempfile");
+                echo "<p>Invalid or corrupted ZIP file.</p>";
                 unlink($tempfile);
             }
         } else {
-            echo "<p class='error'>Failed to download ZIP file. Please check the URL or network connection.</p>";
-            error_log("Failed to download ZIP: $url");
-            unlink($tempfile);
+            echo "<p>Failed to download ZIP file. Please check the URL or network connection.</p>";
         }
     } else {
         echo "<p>Please enter a URL.</p>";
