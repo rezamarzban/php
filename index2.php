@@ -19,65 +19,6 @@
     </style>
 </head>
 <body>
-<?php
-// Handle image serving
-if (isset($_GET['action']) && $_GET['action'] === 'serve_image' && isset($_GET['url']) && isset($_GET['image']) && isset($_GET['dir'])) {
-    $url = $_GET['url'];
-    $image_path = $_GET['image'];
-    $temp_dir_id = $_GET['dir'];
-
-    // Validate URL
-    if (!filter_var($url, FILTER_VALIDATE_URL) || !preg_match('/^https?:\/\//', $url)) {
-        http_response_code(400);
-        echo "Invalid URL.";
-        exit;
-    }
-
-    // Validate image path (allow only certain extensions and no path traversal)
-    $valid_extensions = ['png', 'jpg', 'jpeg', 'gif'];
-    $ext = strtolower(pathinfo($image_path, PATHINFO_EXTENSION));
-    if (!in_array($ext, $valid_extensions) || strpos($image_path, '..') !== false) {
-        http_response_code(400);
-        echo "Invalid image file.";
-        exit;
-    }
-
-    // Validate temp directory
-    $temp_dir = sys_get_temp_dir() . '/zip_images_' . basename($temp_dir_id);
-    if (!is_dir($temp_dir)) {
-        http_response_code(404);
-        echo "Temporary directory not found.";
-        exit;
-    }
-
-    // Construct full path to image
-    $full_path = $temp_dir . '/' . $image_path;
-    if (!file_exists($full_path)) {
-        http_response_code(404);
-        echo "Image not found.";
-        exit;
-    }
-
-    // Serve the image with appropriate content type
-    switch ($ext) {
-        case 'png':
-            header('Content-Type: image/png');
-            break;
-        case 'jpg':
-        case 'jpeg':
-            header('Content-Type: image/jpeg');
-            break;
-        case 'gif':
-            header('Content-Type: image/gif');
-            break;
-    }
-    header('Content-Length: ' . filesize($full_path));
-    readfile($full_path);
-    exit;
-}
-
-// Main page logic
-?>
     <h2>Enter URL of ZIP File</h2>
     <form method="get">
         <label for="url">URL:</label>
@@ -106,39 +47,56 @@ if (isset($_GET['action']) && $_GET['action'] === 'serve_image' && isset($_GET['
         }
     }
 
-    function extract_images($zip, $temp_dir) {
-        $image_extensions = ['png', 'jpg', 'jpeg', 'gif'];
-        $image_files = [];
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $filename = $zip->getNameIndex($i);
-            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if (in_array($ext, $image_extensions)) {
-                $zip->extractTo($temp_dir, $filename);
-                $image_files[] = $filename;
-            }
+    function get_image_data_uri($zip, $image_path) {
+        $valid_extensions = ['png', 'jpg', 'jpeg', 'gif'];
+        $ext = strtolower(pathinfo($image_path, PATHINFO_EXTENSION));
+        if (!in_array($ext, $valid_extensions) || strpos($image_path, '..') !== false) {
+            return null; // Invalid image or potential path traversal
         }
-        return $image_files;
+
+        $image_data = $zip->getFromName($image_path);
+        if ($image_data === false) {
+            return null; // Image not found in ZIP
+        }
+
+        // Get MIME type
+        $mime_type = match ($ext) {
+            'png' => 'image/png',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'gif' => 'image/gif',
+            default => null
+        };
+
+        if (!$mime_type) {
+            return null;
+        }
+
+        // Encode image as base64 and create data URI
+        $base64 = base64_encode($image_data);
+        return "data:$mime_type;base64,$base64";
     }
 
-    function display_md_file($zip, $file, $url, $temp_dir) {
+    function display_md_file($zip, $file, $url) {
         if (!preg_match('/^[a-zA-Z0-9_\-\.\/]+\.md$/', $file)) {
             echo "<p>Invalid file name.</p>";
             return;
         }
         $content = $zip->getFromName($file);
         if ($content !== false) {
-            // Rewrite image paths in Markdown to point to self with action=serve_image
-            $image_dir = basename($temp_dir);
+            // Rewrite image paths in Markdown to data URIs
             $content = preg_replace_callback(
                 '/!\[([^\]]*)\]\(([^)]+)\)/',
-                function ($matches) use ($url, $image_dir) {
+                function ($matches) use ($zip) {
                     $alt_text = $matches[1];
                     $image_path = $matches[2];
                     // Only rewrite relative paths (not URLs)
                     if (!preg_match('/^https?:\/\//', $image_path)) {
-                        return "![$alt_text](?action=serve_image&url=" . urlencode($url) . "&image=" . urlencode($image_path) . "&dir=$image_dir)";
+                        $data_uri = get premeditated
+                            return "![$alt_text]($data_uri)";
+                        }
+                        return $matches[0]; // Leave absolute URLs unchanged
                     }
-                    return $matches[0]; // Leave absolute URLs unchanged
+                    return $matches[0];
                 },
                 $content
             );
@@ -174,34 +132,23 @@ if (isset($_GET['action']) && $_GET['action'] === 'serve_image' && isset($_GET['
             exit;
         }
         $tempfile = tempnam(sys_get_temp_dir(), 'zip');
-        $temp_dir = sys_get_temp_dir() . '/zip_images_' . uniqid();
-        mkdir($temp_dir, 0755, true);
         if (copy($url, $tempfile)) {
             $zip = new ZipArchive;
             if ($zip->open($tempfile) === TRUE) {
-                // Extract images to temporary directory
-                $image_files = extract_images($zip, $temp_dir);
                 if (isset($_GET['file'])) {
-                    display_md_file($zip, $_GET['file'], $url, $temp_dir);
+                    display_md_file($zip, $_GET['file'], $url);
                 } else {
                     list_md_files($zip, $url);
                 }
                 $zip->close();
-                // Clean up
                 unlink($tempfile);
-                // Delete extracted images and directory
-                foreach (glob("$temp_dir/*") as $file) {
-                    unlink($file);
-                }
-                rmdir($temp_dir);
             } else {
                 echo "<p>Invalid or corrupted ZIP file.</p>";
                 unlink($tempfile);
-                rmdir($temp_dir);
             }
         } else {
             echo "<p>Failed to download ZIP file. Please check the URL or network connection.</p>";
-            rmdir($temp_dir);
+            unlink($tempfile);
         }
     } else {
         echo "<p>Please enter a URL.</p>";
