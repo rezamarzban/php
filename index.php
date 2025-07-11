@@ -19,6 +19,19 @@ function isValidUrl($url) {
 }
 
 /**
+ * Resrices like `<sub>0</sub>` to `$_{0}$` and `<sup>2</sup>` to `$^{2}$` for MathJax
+ * @param string $content
+ * @return string
+ */
+function convertHtmlToLatex($content) {
+    // Convert <sub>...</sub> to LaTeX subscripts
+    $content = preg_replace('/<sub>(.*?)<\/sub>/i', '$_{$1}$', $content);
+    // Convert <sup>...</sup> to LaTeX superscripts
+    $content = preg_replace('/<sup>(.*?)<\/sup>/i', '$^{$1}$', $content);
+    return $content;
+}
+
+/**
  * Resolves relative paths within the ZIP, handling both / and \ separators
  * @param string $base Base path (file being processed)
  * @param string $path Relative path to resolve
@@ -146,6 +159,9 @@ function downloadZip($url, $destination) {
                 echo '<p class="error">File not found in ZIP.</p>';
                 echo '<a href="?url=' . urlencode($url) . '" class="back-link">Back to list</a>';
             } else {
+                // Convert HTML sub/sup to LaTeX
+                $content = convertHtmlToLatex($content);
+                
                 // Process images in Markdown
                 $content = preg_replace_callback(
                     '/!\[(.*?)\]\((.*?)\)/',
@@ -185,9 +201,8 @@ function downloadZip($url, $destination) {
                     $content
                 );
 
-                // Sanitize Markdown to prevent XSS
-                $content = htmlspecialchars($content, ENT_QUOTES, 'UTF-8');
-                
+                // Store raw Markdown in a hidden div (no htmlspecialchars)
+                echo '<div id="raw-markdown" style="display:none;">' . htmlspecialchars($content, ENT_QUOTES, 'UTF-8') . '</div>';
                 echo '<a href="?url=' . urlencode($url) . '" class="back-link">Back to list</a>';
                 echo '<h2>Content of ' . htmlspecialchars($file) . '</h2>';
                 echo '<div class="markdown-body" id="rendered-markdown"></div>';
@@ -208,9 +223,8 @@ function downloadZip($url, $destination) {
                     };
                     
                     // Render Markdown
-                    const rawMarkdown = <?php echo json_encode($content); ?>;
                     document.getElementById('loading').style.display = 'block';
-                    document.getElementById('rendered-markdown').innerHTML = marked.parse(rawMarkdown);
+                    document.getElementById('rendered-markdown').innerHTML = marked.parse(document.getElementById('raw-markdown').innerText);
                     MathJax.typesetPromise()
                         .then(() => document.getElementById('loading').style.display = 'none')
                         .catch(err => {
