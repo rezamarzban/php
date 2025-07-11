@@ -16,6 +16,7 @@
         @media (max-width: 767px) {
             .markdown-body { padding: 15px; }
         }
+        .debug { color: red; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -63,13 +64,13 @@
         // Extract and encode images as base64
         $allowed_extensions = ['png', 'jpg', 'jpeg', 'gif'];
         $image_map = [];
+        echo "<div class='debug'><h3>Debug: Images Found in ZIP</h3><ul>";
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $filename = $zip->getNameIndex($i);
             $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
             if (in_array($ext, $allowed_extensions)) {
                 $image_content = $zip->getFromName($filename);
-                if ($image_content !== false) {
-                    // Determine MIME type
+                if ($image_content !== false && strlen($image_content) <= 1048576) { // 1MB limit
                     $mime_types = [
                         'png' => 'image/png',
                         'jpg' => 'image/jpeg',
@@ -77,17 +78,47 @@
                         'gif' => 'image/gif'
                     ];
                     $mime = $mime_types[$ext] ?? 'application/octet-stream';
-                    // Encode image as base64
                     $base64 = 'data:' . $mime . ';base64,' . base64_encode($image_content);
                     $image_map[$filename] = $base64;
+                    echo "<li>$filename (MIME: $mime)</li>";
+                } else {
+                    echo "<li>$filename (skipped: invalid or too large)</li>";
                 }
             }
         }
+        echo "</ul></div>";
 
-        // Rewrite image paths in Markdown to use base64 data URLs
-        foreach ($image_map as $original_path => $base64_data) {
-            $content = str_replace($original_path, $base64_data, $content);
+        // Rewrite image paths in Markdown using regex
+        $image_replacements = [];
+        $content = preg_replace_callback(
+            '/!\[.*?\]\((.*?)\)/',
+            function ($matches) use ($image_map, &$image_replacements) {
+                $path = trim($matches[1]);
+                // Normalize path (remove ../, handle case sensitivity)
+                $normalized_path = str_replace('../', '', $path);
+                $found_key = null;
+                foreach ($image_map as $key => $base64) {
+                    if (strtolower($key) === strtolower($path) || strtolower($key) === strtolower($normalized_path)) {
+                        $found_key = $key;
+                        break;
+                    }
+                }
+                if ($found_key) {
+                    $image_replacements[$path] = $found_key;
+                    return "![Image](" . $image_map[$found_key] . ")";
+                }
+                $image_replacements[$path] = "Not found";
+                return $matches[0]; // Keep original if no match
+            },
+            $content
+        );
+
+        // Debug image replacements
+        echo "<div class='debug'><h3>Debug: Image Path Replacements</h3><ul>";
+        foreach ($image_replacements as $original => $replaced) {
+            echo "<li>Original: $original -> Replaced with: $replaced</li>";
         }
+        echo "</ul></div>";
 
         echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
         echo '<div id="raw-markdown" style="display:none;">' . htmlspecialchars($content) . '</div>';
@@ -98,7 +129,8 @@
         echo '<script>
             const rawMarkdown = document.getElementById("raw-markdown").innerText;
             const parsedMarkdown = marked.parse(rawMarkdown);
-            document.getElementById("rendered-markdown").innerHTML = DOMPurify.sanitize(parsedMarkdown);
+            document.getElementById("rendered-markdown").innerHTML = DOMPuri
+fy.sanitize(parsedMarkdown);
             MathJax.typesetPromise().then(() => {
                 console.log("MathJax typesetting completed.");
             }).catch(err => {
