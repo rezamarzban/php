@@ -19,7 +19,7 @@ function isValidUrl($url) {
 }
 
 /**
- * Resrices like `<sub>0</sub>` to `$_{0}$` and `<sup>2</sup>` to `$^{2}$` for MathJax
+ * Converts HTML sub/sup to LaTeX (e.g., <sub>0</sub> to $_{0}$, <sup>2</sup> to $^{2}$)
  * @param string $content
  * @return string
  */
@@ -107,6 +107,7 @@ function downloadZip($url, $destination) {
         .error, .loading { color: red; font-weight: bold; }
         .loading { color: blue; }
         .back-link { margin: 20px 0; display: block; }
+        .debug { display: none; background: #f8f8f8; padding: 10px; border: 1px solid #ddd; }
         @media (max-width: 767px) {
             .markdown-body { padding: 15px; }
         }
@@ -121,6 +122,7 @@ function downloadZip($url, $destination) {
     </form>
 
     <div id="loading" class="loading" style="display: none;">Loading...</div>
+    <div id="debug" class="debug"></div>
 
     <?php
     if (isset($_GET['url'])) {
@@ -201,20 +203,24 @@ function downloadZip($url, $destination) {
                     $content
                 );
 
-                // Store raw Markdown in a hidden div (no htmlspecialchars)
+                // Store raw Markdown in a hidden div
                 echo '<div id="raw-markdown" style="display:none;">' . htmlspecialchars($content, ENT_QUOTES, 'UTF-8') . '</div>';
                 echo '<a href="?url=' . urlencode($url) . '" class="back-link">Back to list</a>';
                 echo '<h2>Content of ' . htmlspecialchars($file) . '</h2>';
                 echo '<div class="markdown-body" id="rendered-markdown"></div>';
                 ?>
                 <script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/marked.min.js"></script>
-                <script src="https://romantic-cerf-bi21kt1n6.storage.c2.liara.space/cdn/tex-mml-chtml.js"></script>
+                <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
                 <script>
-                    // Configure MathJax to recognize LaTeX delimiters
+                    // Configure MathJax with extensions for advanced LaTeX
                     window.MathJax = {
+                        loader: {
+                            load: ['[tex]/ams', '[tex]/amssymb'] // Load amsmath and amssymb for \text, \propto, \frac
+                        },
                         tex: {
                             inlineMath: [['$', '$'], ['\\(', '\\)']],
-                            displayMath: [['$$', '$$'], ['\\[', '\\]']]
+                            displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                            packages: ['base', 'ams', 'amssymb'] // Ensure packages are available
                         },
                         options: {
                             skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
@@ -224,12 +230,17 @@ function downloadZip($url, $destination) {
                     
                     // Render Markdown
                     document.getElementById('loading').style.display = 'block';
-                    document.getElementById('rendered-markdown').innerHTML = marked.parse(document.getElementById('raw-markdown').innerText);
+                    const rawMarkdown = document.getElementById('raw-markdown').innerText;
+                    document.getElementById('rendered-markdown').innerHTML = marked.parse(rawMarkdown);
                     MathJax.typesetPromise()
-                        .then(() => document.getElementById('loading').style.display = 'none')
+                        .then(() => {
+                            document.getElementById('loading').style.display = 'none';
+                        })
                         .catch(err => {
                             console.error('MathJax error:', err);
                             document.getElementById('loading').innerHTML = 'Error rendering LaTeX';
+                            document.getElementById('debug').style.display = 'block';
+                            document.getElementById('debug').innerHTML = 'MathJax Error: ' + err.message + '<br>Raw Markdown: <pre>' + rawMarkdown.replace(/</g, '&lt;') + '</pre>';
                         });
                 </script>
                 <?php
