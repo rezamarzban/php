@@ -16,6 +16,7 @@
         @media (max-width: 767px) {
             .markdown-body { padding: 15px; }
         }
+        .error { color: red; }
     </style>
 </head>
 <body>
@@ -28,6 +29,10 @@
     <div id="loading" style="display:none;">Loading...</div>
 
     <?php
+    // Enable error logging to a file for debugging
+    ini_set('log_errors', 1);
+    ini_set('error_log', sys_get_temp_dir() . '/php_errors.log');
+
     function list_md_files($zip, $url) {
         $md_files = [];
         for ($i = 0; $i < $zip->numFiles; $i++) {
@@ -51,15 +56,34 @@
         $valid_extensions = ['png', 'jpg', 'jpeg', 'gif'];
         $ext = strtolower(pathinfo($image_path, PATHINFO_EXTENSION));
         if (!in_array($ext, $valid_extensions) || strpos($image_path, '..') !== false) {
-            return null; // Invalid image or potential path traversal
+            error_log("Invalid image extension or path traversal attempt: $image_path");
+            return null;
+        }
+
+        $stat = $zip->statName($image_path);
+        if ($stat === false) {
+            error_log("Image not found in ZIP: $image_path");
+            return null;
+        }
+
+        // Limit image size to 1MB to avoid browser issues
+        if ($stat['size'] > 1048576) {
+            error_log("Image too large: $image_path ({$stat['size']} bytes)");
+            return null;
         }
 
         $image_data = $zip->getFromName($image_path);
         if ($image_data === false) {
-            return null; // Image not found in ZIP
+            error_log("Failed to read image data: $image_path");
+            return null;
         }
 
-        // Get MIME type
+        // Validate image data (basic check)
+        if (strlen($image_data) < 10) {
+            error_log("Invalid image data (too small): $image_path");
+            return null;
+        }
+
         $mime_type = match ($ext) {
             'png' => 'image/png',
             'jpg', 'jpeg' => 'image/jpeg',
@@ -68,67 +92,77 @@
         };
 
         if (!$mime_type) {
+            error_log("Unsupported MIME type for: $image_path");
             return null;
         }
 
-        // Encode image as base64 and create data URI
         $base64 = base64_encode($image_data);
         return "data:$mime_type;base64,$base64";
     }
 
     function display_md_file($zip, $file, $url) {
         if (!preg_match('/^[a-zA-Z0-9_\-\.\/]+\.md$/', $file)) {
-            echo "<p>Invalid file name.</p>";
+            echo "<p class='error'>Invalid file name.</p>";
+            error_log("Invalid Markdown file name: $file");
             return;
         }
         $content = $zip->getFromName($file);
-        if ($content !== false) {
-            // Rewrite image paths in Markdown to data URIs
-            $content = preg_replace_callback(
-                '/!\[([^\]]*)\]\(([^)]+)\)/',
-                function ($matches) use ($zip) {
-                    $alt_text = $matches[1];
-                    $image_path = $matches[2];
-                    // Only rewrite relative paths (not URLs)
-                    if (!preg_match('/^https?:\/\//', $image_path)) {
-                        $data_uri = get premeditated
-                            return "![$alt_text]($data_uri)";
-                        }
-                        return $matches[0]; // Leave absolute URLs unchanged
-                    }
-                    return $matches[0];
-                },
-                $content
-            );
-
-            echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
-            echo '<div id="raw-markdown" style="display:none;">' . htmlspecialchars($content) . '</div>';
-            echo '<div class="markdown-body" id="rendered-markdown"></div>';
-            echo '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>';
-            echo '<script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.1/dist/purify.min.js"></script>';
-            echo '<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>';
-            echo '<script>
-                const rawMarkdown = document.getElementById("raw-markdown").innerText;
-                const parsedMarkdown = marked.parse(rawMarkdown);
-                document.getElementById("rendered-markdown").innerHTML = DOMPurify.sanitize(parsedMarkdown);
-                MathJax.typesetPromise().then(() => {
-                    console.log("MathJax typesetting completed.");
-                }).catch(err => {
-                    console.error("MathJax typesetting failed: ", err);
-                    document.getElementById("rendered-markdown").innerHTML += "<p>Error rendering LaTeX equations.</p>";
-                });
-                document.getElementById("loading").style.display = "none";
-            </script>';
-            echo '<a href="?url=' . urlencode($url) . '">Back to list</a>';
-        } else {
-            echo "<p>File not found in ZIP.</p>";
+        if ($content === false) {
+            echo "<p class='error'>File not found in ZIP.</p>";
+            error_log("Markdown file not found in ZIP: $file");
+            return;
         }
+
+        // Rewrite image paths in Markdown to data URIs
+        $content = preg_replace_callback(
+            '/!\[([^\]]*)\]\(([^)]+)\)/',
+            function ($matches) use ($zip) {
+                $alt_text = $matches[1];
+                $image_path = $matches[2];
+                // Only rewrite relative paths (not URLs)
+                if (!preg_match('/^https?:\/\//', $image_path)) {
+                    $data_uri = get_image_data_uri($zip, $image_path);
+                    // Use placeholder if image is missing or invalid
+                    return $data_uri ? "![$alt_text]($data_uri)" : "![$alt_text](/images/missing.png)";
+                }
+                return $matches[0]; // Leave absolute URLs unchanged
+            },
+            $content
+        );
+
+        echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
+        echo '<div id="raw-markdown" style="display:none;">' . htmlspecialchars($content) . '</div>';
+        echo '<div class="markdown-body" id="rendered-markdown"></div>';
+        echo '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>';
+        echo '<script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.1/dist/purify.min.js"></script>';
+        echo '<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>';
+        echo '<script>
+            const rawMarkdown = document.getElementById("raw-markdown").innerText;
+            const parsedMarkdown = marked.parse(rawMarkdown);
+            document.getElementById("rendered-markdown").innerHTML = DOMPurify.sanitize(parsedMarkdown);
+            MathJax.typesetPromise().then(() => {
+                console.log("MathJax typesetting completed.");
+            }).catch(err => {
+                console.error("MathJax typesetting failed: ", err);
+                document.getElementById("rendered-markdown").innerHTML += "<p>Error rendering LaTeX equations.</p>";
+            });
+            document.getElementById("loading").style.display = "none";
+        </script>';
+        echo '<a href="?url=' . urlencode($url) . '">Back to list</a>';
+
+        // Optional: Debug output (uncomment to display)
+        /*
+        echo "<pre>Debug: Rewritten Markdown Content:\n";
+        echo htmlspecialchars($content);
+        echo "</pre>";
+        */
     }
 
     if (isset($_GET['url']) && !empty($_GET['url'])) {
         $url = $_GET['url'];
         if (!filter_var($url, FILTER_VALIDATE_URL) || !preg_match('/^https?:\/\//', $url)) {
-            echo "<p>Invalid or unsupported URL scheme.</p>";
+            echo "<p class='error'>Invalid or unsupported URL scheme.</p>";
+            error_log("Invalid URL: $url");
             exit;
         }
         $tempfile = tempnam(sys_get_temp_dir(), 'zip');
@@ -143,11 +177,13 @@
                 $zip->close();
                 unlink($tempfile);
             } else {
-                echo "<p>Invalid or corrupted ZIP file.</p>";
+                echo "<p class='error'>Invalid or corrupted ZIP file.</p>";
+                error_log("Failed to open ZIP: $tempfile");
                 unlink($tempfile);
             }
         } else {
-            echo "<p>Failed to download ZIP file. Please check the URL or network connection.</p>";
+            echo "<p class='error'>Failed to download ZIP file. Please check the URL or network connection.</p>";
+            error_log("Failed to download ZIP: $url");
             unlink($tempfile);
         }
     } else {
