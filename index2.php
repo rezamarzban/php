@@ -53,14 +53,14 @@
             return;
         }
 
-        // Create a unique temporary directory for images
-        $temp_dir = sys_get_temp_dir() . '/md_images_' . uniqid();
-        if (!mkdir($temp_dir, 0755, true)) {
-            echo "<p>Failed to create temporary directory for images.</p>";
+        // Get Markdown content
+        $content = $zip->getFromName($file);
+        if ($content === false) {
+            echo "<p>File not found in ZIP.</p>";
             return;
         }
 
-        // Extract images from ZIP to temporary directory
+        // Extract and encode images as base64
         $allowed_extensions = ['png', 'jpg', 'jpeg', 'gif'];
         $image_map = [];
         for ($i = 0; $i < $zip->numFiles; $i++) {
@@ -69,29 +69,24 @@
             if (in_array($ext, $allowed_extensions)) {
                 $image_content = $zip->getFromName($filename);
                 if ($image_content !== false) {
-                    $temp_image_path = $temp_dir . '/' . basename($filename);
-                    file_put_contents($temp_image_path, $image_content);
-                    // Map the original image path to the temporary file's URL
-                    $image_map[$filename] = $temp_image_path;
+                    // Determine MIME type
+                    $mime_types = [
+                        'png' => 'image/png',
+                        'jpg' => 'image/jpeg',
+                        'jpeg' => 'image/jpeg',
+                        'gif' => 'image/gif'
+                    ];
+                    $mime = $mime_types[$ext] ?? 'application/octet-stream';
+                    // Encode image as base64
+                    $base64 = 'data:' . $mime . ';base64,' . base64_encode($image_content);
+                    $image_map[$filename] = $base64;
                 }
             }
         }
 
-        // Get Markdown content
-        $content = $zip->getFromName($file);
-        if ($content === false) {
-            echo "<p>File not found in ZIP.</p>";
-            // Clean up temporary directory
-            array_map('unlink', glob("$temp_dir/*"));
-            rmdir($temp_dir);
-            return;
-        }
-
-        // Rewrite image paths in Markdown
-        foreach ($image_map as $original_path => $temp_path) {
-            // Convert temporary path to a URL-accessible path
-            $web_path = '/tmp/md_images_' . basename($temp_dir) . '/' . basename($temp_path);
-            $content = str_replace($original_path, $web_path, $content);
+        // Rewrite image paths in Markdown to use base64 data URLs
+        foreach ($image_map as $original_path => $base64_data) {
+            $content = str_replace($original_path, $base64_data, $content);
         }
 
         echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
@@ -113,10 +108,6 @@
             document.getElementById("loading").style.display = "none";
         </script>';
         echo '<a href="?url=' . urlencode($url) . '">Back to list</a>';
-
-        // Clean up temporary directory
-        array_map('unlink', glob("$temp_dir/*"));
-        rmdir($temp_dir);
     }
 
     if (isset($_GET['url']) && !empty($_GET['url'])) {
