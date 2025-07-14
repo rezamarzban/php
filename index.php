@@ -27,7 +27,7 @@
     <h2>Enter URL of ZIP File</h2>
     <form method="get">
         <label for="url">URL:</label>
-        <input type="text" name="url" id="url" value="<?php echo isset($_GET['url']) ? htmlspecialchars($_GET['url']) : ''; ?>">
+        <input type="text" name="url" id="url" value="<?= isset($_GET['url']) ? htmlspecialchars($_GET['url']) : '' ?>">
         <input type="submit" value="List .md Files">
     </form>
 
@@ -56,12 +56,13 @@
         }
 
         if (isset($_GET['file'])) {
-            // Display the content of the selected .md file
             $file = $_GET['file'];
             $content = $zip->getFromName($file);
             if ($content !== false) {
                 echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
-                echo '<div class="markdown-body" id="rendered-markdown"></div>';
+
+                // Output GitHub-style article container
+                echo '<article class="markdown-body entry-content container-lg" itemprop="text" id="rendered-markdown"></article>';
 
                 // Pass raw Markdown content safely to JavaScript
                 echo '<script type="text/javascript">';
