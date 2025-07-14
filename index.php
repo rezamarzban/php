@@ -69,16 +69,31 @@
                 echo 'var rawMarkdownContent = ' . json_encode($content) . ';';
                 echo '</script>';
 
+                // MathJax configuration to support $...$ and $$...$$
+                echo '<script>
+                    MathJax = {
+                        tex: {
+                            inlineMath: [["$", "$"], ["\\\\(", "\\\\)"]],
+                            displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+                            processEscapes: true,
+                            processEnvironments: true
+                        },
+                        options: {
+                            skipHtmlTags: ["script", "noscript", "style", "textarea", "pre"]
+                        }
+                    };
+                </script>';
+
                 // Load libraries
                 echo '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js "></script>';
                 echo '<script src="https://cdn.jsdelivr.net/npm/mathjax @3/es5/tex-mml-chtml.js"></script>';
 
                 // Render Markdown and process LaTeX
                 echo '<script>
-                    document.addEventListener("DOMContentLoaded", function() {
+                    document.addEventListener("DOMContentLoaded", function () {
                         const rendered = document.getElementById("rendered-markdown");
                         rendered.innerHTML = marked.parse(rawMarkdownContent);
-                        MathJax.typesetPromise().catch(function(err) {
+                        MathJax.typesetPromise([rendered]).catch(function(err) {
                             console.error("MathJax typesetting failed: ", err);
                         });
                     });
