@@ -44,6 +44,14 @@
                             echo '<div id="raw-markdown" style="display:none;" aria-hidden="true">' . htmlspecialchars($content) . '</div>';
                             echo '<div class="markdown-body" id="rendered-markdown"></div>';
                             echo '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>';
+                            echo '<script>
+                                MathJax = {
+                                    tex: {
+                                        inlineMath: [["$", "$"], ["\\\\(", "\\\\)"]],
+                                        displayMath: [["$$", "$$"], ["\\\\[", "\\\\]"]]
+                                    }
+                                };
+                            </script>';
                             echo '<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>';
                             echo '<script>
                                 document.getElementById("rendered-markdown").innerHTML = marked.parse(document.getElementById("raw-markdown").innerText);
