@@ -27,7 +27,7 @@
     <h2>Enter URL of ZIP File</h2>
     <form method="get">
         <label for="url">URL:</label>
-        <input type="text" name="url" id="url" value="<?= isset($_GET['url']) ? htmlspecialchars($_GET['url']) : '' ?>">
+        <input type="text" name="url" id="url" value="<?= htmlspecialchars($_GET['url'] ?? '') ?>">
         <input type="submit" value="List .md Files">
     </form>
 
@@ -61,7 +61,7 @@
             if ($content !== false) {
                 echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
 
-                // Output GitHub-style article container
+                // Use GitHub-style article tag with schema.org attributes
                 echo '<article class="markdown-body entry-content container-lg" itemprop="text" id="rendered-markdown"></article>';
 
                 // Pass raw Markdown content safely to JavaScript
@@ -76,7 +76,8 @@
                 // Render Markdown and process LaTeX
                 echo '<script>
                     document.addEventListener("DOMContentLoaded", function() {
-                        document.getElementById("rendered-markdown").innerHTML = marked.parse(rawMarkdownContent);
+                        const rendered = document.getElementById("rendered-markdown");
+                        rendered.innerHTML = marked.parse(rawMarkdownContent);
                         MathJax.typesetPromise().catch(function(err) {
                             console.error("MathJax typesetting failed: ", err);
                         });
