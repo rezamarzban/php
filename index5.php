@@ -28,7 +28,7 @@
 </head>
 <body>
     <h2>Enter URL of ZIP File</h2>
-    <form method="post">
+    <form method="get">
         <label for="url">URL:</label>
         <input type="text" name="url" id="url" value="<?php echo isset($_GET['url']) ? htmlspecialchars($_GET['url']) : ''; ?>">
         <label for="password">Password (if protected):</label>
@@ -105,9 +105,9 @@
     }
 
     // Handle password prompt for nested ZIPs
-    if (isset($_POST['action']) && $_POST['action'] === 'ask_password') {
-        echo "<h2>Enter Password for Nested ZIP: " . htmlspecialchars($_POST['nested_file']) . "</h2>";
-        echo '<form method="post">';
+    if (isset($_GET['action']) && $_GET['action'] === 'ask_password') {
+        echo "<h2>Enter Password for Nested ZIP: " . htmlspecialchars($_GET['nested_file']) . "</h2>";
+        echo '<form method="get">';
         echo '<input type="hidden" name="action" value="list_nested">';
         echo '<input type="hidden" name="url" value="' . htmlspecialchars($_GET['url']) . '">';
         echo '<input type="hidden" name="password" value="' . htmlspecialchars($_GET['password']) . '">';
@@ -120,12 +120,12 @@
     }
 
     // Handle listing or viewing contents of nested ZIPs
-    if (isset($_POST['action']) && $_POST['action'] === 'list_nested') {
+    if (isset($_GET['action']) && $_GET['action'] === 'list_nested') {
         $tempfile = tempnam(sys_get_temp_dir(), 'zip');
-        if (copy($_POST['url'], $tempfile)) {
+        if (copy($_GET['url'], $tempfile)) {
             $zip = new ZipArchive;
             if ($zip->open($tempfile) === TRUE) {
-                if (!empty($_POST['password'])) {
+                if (!empty($_GET['password'])) {
                     $zip->setPassword($_GET['password']);
                 }
                 $nested_content = $zip->getFromName($_GET['nested_file']);
@@ -136,17 +136,17 @@
                     
                     $nested_zip = new ZipArchive;
                     if ($nested_zip->open($nested_tempfile) === TRUE) {
-                        if (!empty($_POST['nested_password'])) {
+                        if (!empty($_GET['nested_password'])) {
                             $nested_zip->setPassword($_GET['nested_password']);
                         }
-                        if (isset($_POST['file'])) {
+                        if (isset($_GET['file'])) {
                             // View a specific file in the nested ZIP
                             $content = $nested_zip->getFromName($_GET['file']);
                             if ($content !== false) {
-                                $extension = pathinfo($_POST['file'], PATHINFO_EXTENSION);
+                                $extension = pathinfo($_GET['file'], PATHINFO_EXTENSION);
                                 if (strtolower($extension) === 'md') {
                                     // Handle Markdown files with image embedding
-                                    $md_dir = dirname($_POST['file']);
+                                    $md_dir = dirname($_GET['file']);
                                     preg_match_all('/!\[.*?\]\((.*?)\)/', $content, $matches);
                                     $image_paths = $matches[1];
                                     foreach ($image_paths as $image_path) {
@@ -201,10 +201,10 @@
                             $tree = buildTree($files);
                             $base_params = [
                                 'action' => 'list_nested',
-                                'url' => $_POST['url'],
-                                'password' => $_POST['password'],
-                                'nested_file' => $_POST['nested_file'],
-                                'nested_password' => $_POST['nested_password']
+                                'url' => $_GET['url'],
+                                'password' => $_GET['password'],
+                                'nested_file' => $_GET['nested_file'],
+                                'nested_password' => $_GET['nested_password']
                             ];
                             echo "<h2>Contents of " . htmlspecialchars($_GET['nested_file']) . "</h2>";
                             displayTree($tree, '', $base_params);
@@ -228,9 +228,9 @@
     }
 
     // Handle main ZIP processing
-    if (isset($_POST['url'])) {
-        $url = $_POST['url'];
-        $password = isset($_POST['password']) ? $_GET['password'] : '';
+    if (isset($_GET['url'])) {
+        $url = $_GET['url'];
+        $password = isset($_GET['password']) ? $_GET['password'] : '';
         if (!empty($url)) {
             $tempfile = tempnam(sys_get_temp_dir(), 'zip');
             if (copy($url, $tempfile)) {
@@ -239,9 +239,9 @@
                     if (!empty($password)) {
                         $zip->setPassword($password);
                     }
-                    if (isset($_POST['file'])) {
+                    if (isset($_GET['file'])) {
                         // Display content of a selected file
-                        $file = $_POST['file'];
+                        $file = $_GET['file'];
                         $content = $zip->getFromName($file);
                         if ($content !== false) {
                             echo "<h2>Content of " . htmlspecialchars($file) . "</h2>";
